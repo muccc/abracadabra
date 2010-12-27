@@ -4,10 +4,10 @@ import datetime
 import time
 import types
 
-#ACAB_PORT = 50023  #spooler
-ACAB_PORT = 43948
+ACAB_PORT = 50023  #spooler
+#ACAB_PORT = 43948
 #ACAB_PORT = 44203
-ACAB_IP = "127.0.0.1"
+ACAB_IP = "81.163.62.30"
 
 SCREEN_HEIGHT = 6
 SCREEN_WIDTH = 16
@@ -134,13 +134,19 @@ class Color:
         return "%s%s%s"%(chr(self.r),chr(self.g),chr(self.b))
 
 class Frame:
-    def __init__(self, duration = FRAME_DEFAULT_DURATION, color=Color()):
-        #TODO check for bogus stuff here
-        self.duration = duration
+    def __init__(self, duration = FRAME_DEFAULT_DURATION, color=Color(), clone=None):
         self.content={}
-        for x in range(SCREEN_WIDTH):
-            for y in range(SCREEN_HEIGHT):
-                self.content[(x,y)]=color
+        self.duration = duration
+        
+        if clone:
+            self.duration=clone.duration
+            for key in clone.content:
+                self.content[key]=clone.content[key]
+            
+        else:
+            for x in range(SCREEN_WIDTH):
+                for y in range(SCREEN_HEIGHT):
+                    self.content[(x,y)]=color
         
     def __unicode__(self):
         return "Duration: %s"%(self.duration)
@@ -193,7 +199,7 @@ class Stream:
         connection = Connection()
         #hello = connection.receive_zero_terminated()
         #print hello
-        if 1:# connection.request(self.TITLE,self.AUTHOR):
+        if  connection.request(self.TITLE,self.AUTHOR):
             print "Starting Stream"
             frame = self.init_frame()
             print frame
