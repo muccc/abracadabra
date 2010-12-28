@@ -4,10 +4,17 @@ import datetime
 import time
 import types
 
-ACAB_PORT = 50023  #spooler
-#ACAB_PORT = 43948
+#  #spooler
+wall = True
+if wall:
+    ACAB_PORT = 50023
+    ACAB_IP = "81.163.62.30"
+else:
+    ACAB_PORT = 43948
+    ACAB_IP = "127.0.0.1"
 #ACAB_PORT = 44203
-ACAB_IP = "81.163.62.30"
+#ACAB_IP = 
+
 
 SCREEN_HEIGHT = 6
 SCREEN_WIDTH = 16
@@ -199,7 +206,7 @@ class Stream:
         connection = Connection()
         #hello = connection.receive_zero_terminated()
         #print hello
-        if  connection.request(self.TITLE,self.AUTHOR):
+        if connection.request(self.TITLE,self.AUTHOR):
             print "Starting Stream"
             frame = self.init_frame()
             print frame
@@ -223,9 +230,11 @@ class Connection():
         self.previous_sent = datetime.datetime.now()
         
     def request(self, title, author):
+        if not wall:
+            return True
+        
         MESSAGE_ALLOWED = 'MOAR'
         MESSAGE_DENIED = 'GTFO'
-        
         self.writeln("TITLE=%s"%title)
         self.writeln("AUTHOR=%s"%author)
         self.writeln("DONE")
