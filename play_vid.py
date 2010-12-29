@@ -3,65 +3,72 @@ import threading
 import gobject
 gobject.threads_init()
 import gst 
-
+import pygame
 import struct
 import Queue
-RGB_UNPACKER = struct.Struct("BBBB")
+from abracadabra import Frame, Color, Stream, Mask
+import sys
+
 COLS = 16
 ROWS = 6
 
-from abracadabra import Frame, Color, Stream, Mask
+class VideoSource():
+    RGB_UNPACKER = struct.Struct("BBBB")
 
-frame_queue = Queue.Queue(1)
-frame_length = 40 #default 25fps
+    def __init__( self, loop, filename, frame_queue ):
+        self.loop = loop
+        self.frame_queue = frame_queue
 
-def callback(fakesink, buffer, pad, data=None): 
-    data = []
-    for i in range(0, len(buffer), 4):
-        data.append( RGB_UNPACKER.unpack(buffer[i:i+4]) )
+        if filename == "--video":
+            graph = 'v4l2src ! ffmpegcolorspace ! videoscale ! alphacolor ! video/x-raw-rgb,width=16,height=6,framerate=25/1 ! fakesink name=sink sync=1'
+        else:
+            graph  = 'filesrc location=' + filename + ' ! decodebin name=decoder\n'
+            graph += 'decoder. ! ffmpegcolorspace ! videoscale ! alphacolor ! video/x-raw-rgb,width=16,height=6,framerate=25/1 ! fakesink name=sink sync=1\n'
+            graph += 'decoder. ! audioconvert ! audioresample ! alsasink'
 
-    try:
-        frame_queue.put_nowait( data )
-    except Queue.Full:
-        pass
-    return True 
+        self.pipeline = gst.parse_launch( graph )
 
-import sys
-filename = sys.argv[1]
-if filename == "--video":
-    pipeline = gst.parse_launch('v4l2src ! ffmpegcolorspace ! videoscale ! alphacolor ! video/x-raw-rgb,width=16,height=6,framerate=25/1 ! fakesink name=sink sync=1') 
-else:
-    graph  = 'filesrc location=' + filename + ' ! decodebin name=decoder\n'
-    graph += 'decoder. ! ffmpegcolorspace ! videoscale ! alphacolor ! video/x-raw-rgb,width=16,height=6,framerate=25/1 ! fakesink name=sink sync=1\n'
-    graph += 'decoder. ! audioconvert ! audioresample ! alsasink'
-    print graph
+        bus = self.pipeline.get_bus()
+        bus.add_signal_watch()
+        bus.connect( "message::eos", self.bus_watch )
 
-    pipeline = gst.parse_launch( graph )
+        fakesink = self.pipeline.get_by_name('sink') 
+        fakesink.props.signal_handoffs = True 
+        fakesink.connect("handoff", self.callback) 
 
-def bus_watch( bus, message ):
-    #End of movie
-    frame_queue.put( None )
-    pipeline.set_state( gst.STATE_NULL )
-    loop.quit()
-    return True
+    def start(self):
+        self.pipeline.set_state(gst.STATE_PLAYING) 
 
-bus = pipeline.get_bus()
-bus.add_signal_watch()
-bus.connect( "message::eos", bus_watch )
+    def stop(self):
+        self.pipeline.set_state( gst.STATE_NULL )
 
-fakesink = pipeline.get_by_name('sink') 
-fakesink.props.signal_handoffs = True 
-fakesink.connect("handoff", callback) 
+    def callback(self, fakesink, buffer, pad, data=None): 
+        data = []
+        for i in range(0, len(buffer), 4):
+            data.append( self.RGB_UNPACKER.unpack(buffer[i:i+4]) )
 
-import pygame
+        try:
+            self.frame_queue.put_nowait( data )
+        except Queue.Full:
+            pass
+        return True 
+
+    def bus_watch( self, bus, message ):
+        #End of movie
+        self.frame_queue.put( None )
+        self.pipeline.set_state( gst.STATE_NULL )
+        self.loop.quit()
+        return True
+
 class DataStream( Stream ):
     TITLE = "Video Stream"
     AUTHOR = "Steve"
 
-    def __init__(self, frame_queue, output =  True):
+    def __init__(self, frame_queue, output, onStart):
         self.screen = pygame.display.set_mode( (160, 80) )
         self.frame_queue = frame_queue
         self.output = output
+        self.onStart = onStart
 
     def run(self):
         if self.output:
@@ -76,7 +83,7 @@ class DataStream( Stream ):
 
     def justshow(self):
         self.screen = pygame.display.set_mode( (160, 80) )
-        pipeline.set_state(gst.STATE_PLAYING) 
+        self.onStart()
 
         while True:
             data = self.frame_queue.get()
@@ -97,8 +104,8 @@ class DataStream( Stream ):
         """
         Start with a blank frame.
         """
-        pipeline.set_state(gst.STATE_PLAYING) 
-        return Frame( frame_length, Color(0, 0, 0) )
+        self.onStart()
+        return Frame( 40, Color(0, 0, 0) )
     
     def next_frame( self, last_frame ):
         data = self.frame_queue.get()
@@ -107,7 +114,7 @@ class DataStream( Stream ):
             #Finish streaming
             return False
 
-        frame = Frame( frame_length )
+        frame = Frame( 40 )
         
         assert( len( data ) == COLS * ROWS )
 
@@ -127,11 +134,14 @@ class DataStream( Stream ):
         return frame
 
 if __name__ == "__main__":
-    d = DataStream( frame_queue, False )
-    d.run()
+    filename = sys.argv[1]
+
     loop = gobject.MainLoop()
-    print 1
+    frame_queue = Queue.Queue(1)
+
+    source = VideoSource( loop, filename, frame_queue )
+
+    d = DataStream( frame_queue, False, source.start )
+    d.run()
     loop.run()
-    print 2
     d.join()
-    print "Finished"
