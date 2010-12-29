@@ -70,9 +70,9 @@ class DataStream( Stream ):
         self.output = output
         self.onStart = onStart
 
-    def run(self):
+    def start(self):
         if self.output:
-            self.t = threading.Thread( target = Stream.run, args=(self) )
+            self.t = threading.Thread( target = self.run )
         else:
             self.t = threading.Thread( target = self.justshow )
 
@@ -140,8 +140,11 @@ if __name__ == "__main__":
     frame_queue = Queue.Queue(1)
 
     source = VideoSource( loop, filename, frame_queue )
+    if len(sys.argv) > 2:
+        d = DataStream( frame_queue, True, source.start )
+    else:
+        d = DataStream( frame_queue, False, source.start )
 
-    d = DataStream( frame_queue, False, source.start )
-    d.run()
+    d.start()
     loop.run()
     d.join()
