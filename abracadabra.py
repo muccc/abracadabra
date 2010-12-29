@@ -3,25 +3,30 @@ import struct
 import datetime
 import time
 import types
+import sys
 
-#  #spooler
-wall = True
+log = lambda s: sys.stdout.write(s + '\n')
+
+wall = False
+smart_timing = True
+
 if wall:
     ACAB_PORT = 50023
-    ACAB_IP = "81.163.62.30"
-else:
-    ACAB_PORT = 43948
+    #ACAB_PORT = 44203
+    #ACAB_IP = "81.163.62.30"
     ACAB_IP = "127.0.0.1"
-#ACAB_PORT = 44203
-#ACAB_IP = 
-
+else:
+    #ACAB_PORT = 43948
+    ACAB_PORT = 44203
+    #ACAB_IP = "127.0.0.1"
+    ACAB_IP = "81.163.62.30"
 
 SCREEN_HEIGHT = 6
 SCREEN_WIDTH = 16
 SCREEN_DEPTH = 8
 SCREEN_CHANNELS =3
 
-FRAME_DEFAULT_DURATION = 500
+FRAME_DEFAULT_DURATION = 0
 
 class Mask:
     def __init__(self, x=None, y=None):
@@ -87,12 +92,9 @@ class Mask:
         return self
         
     def add_area(self, lx, ly):
-        print lx
-        print ly
         for x in lx:
             for y in ly:
                 self.add(x,y)
-        print self.fields
         return self
     
 class Color:
@@ -171,7 +173,6 @@ class Frame:
         return data
     
     def set(self, mask = Mask().all(), color=Color(255,255,255)):    
-        print mask.fields
         for pos in mask.fields:
             self.content[pos]=color
         return self
@@ -204,20 +205,17 @@ class Stream:
     
     def run(self,):
         connection = Connection()
-        #hello = connection.receive_zero_terminated()
-        #print hello
         if connection.request(self.TITLE,self.AUTHOR):
-            print "Starting Stream"
+            log("Streamer: Starting Stream")
             frame = self.init_frame()
             print frame
             try:
                 while frame: 
-                    print "bla"
                     connection.send_frame(frame)
                     frame = self.next_frame(frame)
             except KeyboardInterrupt:
                     pass
-        print "Ending Stream"
+        log("Streamer: Ending Stream")
         connection.close()
     
 class Connection():
@@ -232,13 +230,24 @@ class Connection():
     def request(self, title, author):
         if not wall:
             return True
+        hello = None
+        while not hello:
+            hello = self.readln()
+        log("ACAB: %s"%hello)
         
         MESSAGE_ALLOWED = 'MOAR'
         MESSAGE_DENIED = 'GTFO'
         self.writeln("TITLE=%s"%title)
         self.writeln("AUTHOR=%s"%author)
         self.writeln("DONE")
+        log("Streamer: Requesting streaming access for '%s' by '%s'"%(title,author))
+        log("Allow the request at the ACAB-Terminal behind the screen.")
         answer = self.readln()
+        #log("ACAB: %s"%answer)
+        if answer == MESSAGE_ALLOWED:
+            log("Streamer: Request allowed.")
+        elif answer == MESSAGE_DENIED:
+            log("Streamer: Request denied.")
         return (answer == MESSAGE_ALLOWED)
         
     
@@ -249,23 +258,35 @@ class Connection():
         MASK_NO_ACK = 0
         MASK_ACK = 0x00000100
         
+        if smart_timing:
+            mask = MASK_NO_ACK
+        else:
+            mask = MASK_ACK
+        
         duration = frame.duration*750
         
-        self.socket.send(struct.pack('!III', HEADER | OP_DURATION, 8+4, duration))
-        d = struct.pack('!II', HEADER | OP_SET_SCREEN | MASK_ACK,
+        #self.socket.send(struct.pack('!III', HEADER | OP_DURATION, 8+4, duration))
+        d = struct.pack('!II', HEADER | OP_SET_SCREEN | mask,
                             8 + SCREEN_HEIGHT * SCREEN_WIDTH * SCREEN_DEPTH / 8 * SCREEN_CHANNELS)
         d+= frame._get_content_for_stream()
         
-        #delta = (self.previous_sent+datetime.timedelta(milliseconds=self.previous_duration))-datetime.datetime.now()
-        #if delta >= datetime.timedelta(microseconds = 10):
-        #    delay = float(delta.microseconds)/1000000
-        #    print "sleeping %s"%delay
-        #    time.sleep(delay)
-        self.socket.send(d)
         
-        #self.previous_sent = datetime.datetime.now()
-        #self.previous_duration = frame.duration
-        self.wait_for_ack()
+        log("Streamer: sending frame.")
+        self.socket.send(d)
+        if smart_timing:
+            delta = (self.previous_sent+datetime.timedelta(milliseconds=self.previous_duration))-datetime.datetime.now()
+            if delta >= datetime.timedelta(microseconds = 1000):
+                delay = delta.seconds + float(delta.microseconds)/1000000
+                log ("Streamer: sleeping %s seconds until requesting next Frame."%delay)
+                time.sleep(delay)
+            else:
+                #time.sleep(0.01)
+                pass
+            self.previous_sent = datetime.datetime.now()
+            self.previous_duration = frame.duration
+        else:  
+            pass
+            #self.wait_for_ack()
     
     def writeln(self, data):
         print "--> %s"%data
@@ -274,12 +295,14 @@ class Connection():
     def readln(self):
         # Read to the buffer
         self.rx_buffer += self.socket.recv(4096)
+
         #Parse the buffer
         nl_pos = self.rx_buffer.find('\n')
         if nl_pos != -1:
-            self.rx_buffer = self.rx_buffer[:nl_pos+1]
             data = self.rx_buffer[:nl_pos]
+            self.rx_buffer = self.rx_buffer[nl_pos+1:]
             print "<-- %s"%data
+            
             return data
         
     def wait_for_ack(self):
