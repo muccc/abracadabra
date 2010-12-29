@@ -69,20 +69,38 @@ class VideoSource():
         self.loop.quit()
         return True
 
+class DataViewer:
+    def __init__(self):
+        self.screen = pygame.display.set_mode( (COLS * BSIZE, ROWS * BSIZE) )
+
+    def show_data( self, data ):
+        self.screen.fill( pygame.color.Color( 0, 0, 0 ) )
+        
+        for col in range(COLS):
+            for row in range(ROWS):
+                r, g, b, a = data[row * COLS + col]
+                self.screen.fill( pygame.color.Color( r, g, b ), pygame.Rect( col * BSIZE, row * BSIZE, BSIZE, BSIZE ) )
+        pygame.display.update()
+ 
+    def delay( self, time ):
+        pygame.time.delay(40)
+        
 class DataStream( Stream ):
     TITLE = "Video Stream"
     AUTHOR = "Steve"
 
-    def __init__(self, frame_queue, output, onStart):
-        self.screen = pygame.display.set_mode( (COLS * BSIZE, ROWS * BSIZE) )
+    def __init__(self, frame_queue, output, onStart, viewer = None):
         self.frame_queue = frame_queue
         self.output = output
         self.onStart = onStart
+        self.viewer = viewer
 
     def start(self):
         if self.output:
             self.t = threading.Thread( target = self.run )
         else:
+            if self.viewer == None:
+                raise SystemException("Need a viewer if not sending video to display")
             self.t = threading.Thread( target = self.justshow )
 
         self.t.start()
@@ -99,18 +117,9 @@ class DataStream( Stream ):
                 return
 
             assert( len( data ) == COLS * ROWS )
-            self.show_data( data )
-            pygame.time.delay(40)
+            self.viewer.show_data( data )
+            self.viewer.delay(40)
 
-    def show_data( self, data ):
-        self.screen.fill( pygame.color.Color( 0, 0, 0 ) )
-        
-        for col in range(COLS):
-            for row in range(ROWS):
-                r, g, b, a = data[row * COLS + col]
-                self.screen.fill( pygame.color.Color( r, g, b ), pygame.Rect( col * BSIZE, row * BSIZE, BSIZE, BSIZE ) )
-        pygame.display.update()
- 
     def init_frame(self):
         """
         Start with a blank frame.
@@ -134,7 +143,8 @@ class DataStream( Stream ):
                 r, g, b, a = data[row * COLS + col]
                 frame.set( Mask( col, row ), Color( r, g, b ) )
 
-        self.show_data( data )
+        if self.viewer != None:
+            self.viewer.show_data( data )
         return frame
 
 if __name__ == "__main__":
@@ -143,11 +153,18 @@ if __name__ == "__main__":
     loop = gobject.MainLoop()
     frame_queue = Queue.Queue(1)
 
+    viewer = None
+    try:
+        import pygame
+        viewer = DataViewer()
+    except:
+        print "Need pygame to have a local view of the video"
+
     source = VideoSource( loop, filename, frame_queue )
     if len(sys.argv) > 2:
-        d = DataStream( frame_queue, True, source.start )
+        d = DataStream( frame_queue, True, source.start, viewer )
     else:
-        d = DataStream( frame_queue, False, source.start )
+        d = DataStream( frame_queue, False, source.start, viewer )
 
     d.start()
     try:
