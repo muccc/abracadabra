@@ -41,6 +41,7 @@ class VideoSource():
 
     def stop(self):
         self.pipeline.set_state( gst.STATE_NULL )
+        self.frame_queue.put( None )
 
     def callback(self, fakesink, buffer, pad, data=None): 
         data = []
@@ -146,5 +147,9 @@ if __name__ == "__main__":
         d = DataStream( frame_queue, False, source.start )
 
     d.start()
-    loop.run()
+    try:
+        loop.run()
+    except KeyboardInterrupt:
+        print "Stopping"
+        source.stop()
     d.join()
